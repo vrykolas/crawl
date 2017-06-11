@@ -9,11 +9,13 @@ const requestOptions = {
 const { URL } = require('url');
 const cheerio = require('cheerio');
 const contentType = require('content-type');
+const mimeTypes = require('mime-types');
 const request = require('request-promise-native').defaults(requestOptions);
+const urlModule = require('url');
 
 const desiredProtocols = [
-  'http',
-  'https'
+  'http:',
+  'https:'
 ];
 
 const urlFormatOptions = {
@@ -25,7 +27,8 @@ function isDesiredUrl(urlObject) {
     return false;
   }
 
-  if(mime.lookup(urlObject.pathname) !== 'text/html') {
+  const mimeType = mimeTypes.lookup(urlObject.pathname);
+  if(mimeType && mimeType !== 'text/html') {
     return false;
   }
 
@@ -38,12 +41,9 @@ function normalizeUrl(urlObject) {
     urlObject.searchParams = urlObject.searchParams.sort();
   }
 
-  if(urlObject.hash) {
-    urlObject.hash = '';
-  }
-
   // Stringify the URL without the hash fragment
-  const stringifiedUrl = url.format(urlObject.toString(), urlFormatOptions);
+  urlObject.hash = '';
+  const stringifiedUrl = urlModule.format(urlObject.toString(), urlFormatOptions);
 
   // Normalize escaped characters
   const reencodedUrl = encodeURI(decodeURI(stringifiedUrl));
@@ -52,6 +52,24 @@ function normalizeUrl(urlObject) {
   const strippedUrl = reencodedUrl.replace(/[?\/]+$/i, '');
 
   return strippedUrl;
+}
+
+function generateBaseUrl(pageUrl, baseUrl) {
+  const url = pageUrl;
+  if(baseUrl) {
+    url = baseUrl;
+  }
+
+  // Remove querystring and hash fragment from the base url
+  const urlObject = new URL(url);
+  urlObject.search = '';
+  urlObject.hash = '';
+
+  // Append a slash to the baseurl if required
+  if(!/\/$/.test(urlObject.href)) {
+    return urlObject.href + '/';
+  }
+  return urlObject.href;
 }
 
 function extractUrls(response) {
@@ -63,15 +81,29 @@ function extractUrls(response) {
 
   const $ = cheerio.load(response.body);
 
+  const pageUrl = response.request.href;
+  let baseSrc = '';
+  const $baseElement = $('base');
+  if($baseElement) {
+    baseSrc = $baseElement.prop('src');
+  }
+  const baseUrl = generateBaseUrl(response.request.href, baseSrc);
+
   const urls = [];
   $('a').each((index, element) => {
-    const urlObject = new URL(element.href);
+
+    if(!element.attribs.href) {
+      return;
+    }
+
+    //handle absolute/relative urls
+    const urlObject = new URL(urlModule.resolve(baseUrl, element.attribs.href));
     if(isDesiredUrl(urlObject)) {
       urls.push(normalizeUrl(urlObject));
     }
   });
 
-  return Promise.resolve(urls);
+  return Promise.resolve(_.uniq(urls));
 }
 
 module.exports = function(url) {
