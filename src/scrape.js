@@ -7,6 +7,7 @@ const requestOptions = {
 };
 
 const { URL } = require('url');
+const _ = require('lodash');
 const cheerio = require('cheerio');
 const contentType = require('content-type');
 const mimeTypes = require('mime-types');
